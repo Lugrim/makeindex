@@ -9,6 +9,67 @@
 )]
 use libc::*;
 use libc_stdhandle::*;
+
+use std::ffi::CString;
+
+use clap::{ArgAction, Parser, ValueEnum};
+
+// TODO: explicit what options do in help message
+#[derive(Parser, Clone)]
+pub struct CliArguments {
+    /// Use stdin intead of input files
+    #[arg(short = 'i')]
+    use_stdin: bool,
+
+    /// Enable letter ordering
+    #[arg(short = 'l')]
+    _letter_ordering: bool,
+
+    /// Supress progress message (quiet mode)
+    #[arg(short = 'q', action=ArgAction::SetFalse)]
+    _verbose: bool,
+
+    /// Disable range merge
+    #[arg(short = 'r', action=ArgAction::SetFalse)]
+    _merge_page: bool,
+
+    /// Compress blanks
+    #[arg(short = 'c')]
+    _compress_blanks: bool,
+
+    /// Enable german sort
+    #[arg(short = 'g')]
+    _german_sort: bool,
+
+    /// Style file
+    #[arg(short = 's')]
+    style: Option<String>,
+
+    /// Output file
+    #[arg(short = 'o')]
+    output: Option<String>,
+
+    /// Transcript file
+    #[arg(short = 't')]
+    transcript: Option<String>,
+
+    // TODO: Cover the "even" / "odd" / "any" case
+    /// Initial page
+    #[arg(short = 'p')]
+    _init_page: Option<usize>,
+
+    /// Input .idx files
+    #[arg(trailing_var_arg = true)]
+    input_files: Vec<String>,
+}
+
+// #[derive(ValueEnum, Clone)]
+// enum InitialPage {
+//     Even,
+//     Odd,
+//     Any
+// }
+
 extern "C" {
     fn __ctype_b_loc() -> *mut *const libc::c_ushort;
     static mut idx_quote: libc::c_char;
@@ -110,221 +171,146 @@ pub static mut pageno: [libc::c_char; 16] = [0; 16];
 static mut log_fn: [libc::c_char; 256] = [0; 256];
 static mut base: [libc::c_char; 256] = [0; 256];
 static mut need_version: bool = true;
+
 #[no_mangle]
-pub unsafe extern "C" fn makeindex_main(mut argc: i32, mut argv: *mut *mut libc::c_char) -> i32 {
+// TODO: use a proper output library like tracing
+pub fn makeindex_main(mut args: CliArguments) -> i32 {
     let mut fns = [std::ptr::null_mut::<libc::c_char>(); 1024];
-    let mut ap = std::ptr::null_mut::<libc::c_char>();
-    let mut use_stdin = false;
-    let mut sty_given = false;
-    let mut ind_given = false;
-    let mut ilg_given = false;
-    let mut log_given = false;
-    pgm_fn = strrchr(*argv, '/' as i32);
-    if pgm_fn.is_null() {
-        pgm_fn = *argv;
-    } else {
-        pgm_fn = pgm_fn.offset(1);
+    // let mut ap = std::ptr::null_mut::<libc::c_char>(); // Was used to manually parse arguments
+    let mut use_stdin = args.use_stdin;
+    let mut sty_given = args.style.is_some();
+    let mut ind_given = args.output.is_some();
+    let mut ilg_given = args.transcript.is_some();
+    unsafe {
+        init_page = args._init_page.is_some() as i32;
     }
-    loop {
-        argc -= 1;
-        if argc <= 0 {
-            break;
+    let mut log_given = false;
+    unsafe {
+        german_sort = args._german_sort as i32;
+    }
+
+    if let Some(style) = args.style {
+        unsafe { open_sty(CString::new(style).unwrap().into_raw()) }
+    }
+
+    if let Some(out) = args.output {
+        unsafe { ind_fn = CString::new(out).unwrap().into_raw() }
+    }
+
+    if let Some(trans) = args.transcript {
+        unsafe { ilg_fn = CString::new(trans).unwrap().into_raw() }
+    }
+
+    if let Some(page) = args._init_page {
+        unsafe {
+            pageno.copy_from_slice(std::mem::transmute::<&[u8], &[i8]>(
+                CString::new(page.to_string()).unwrap().to_bytes(),
+            ))
         }
-        argv = argv.offset(1);
-        if **argv as i32 == '-' as i32 {
-            if *(*argv).offset(1) as i32 == '\0' as i32 {
-                break;
-            }
-            *argv = (*argv).offset(1);
-            ap = *argv;
-            while *ap as i32 != '\0' as i32 {
-                match *ap as i32 {
-                    105 => {
-                        use_stdin = true;
-                    }
-                    108 => {
-                        letter_ordering = 1;
-                    }
-                    114 => {
-                        merge_page = 0;
-                    }
-                    113 => {
-                        verbose = false;
-                    }
-                    99 => {
-                        compress_blanks = 1;
-                    }
-                    115 => {
-                        argc -= 1;
+    }
 
-                        if argc <= 0 {
-                            fprintf(
-                                stderr(),
-                                b"Expected -s <stylefile>\n\0" as *const u8 as *const libc::c_char,
-                                b"\0" as *const u8 as *const libc::c_char,
-                            );
-                            fprintf(
-                                stderr(),
-                                b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                                    as *const u8 as *const libc::c_char,
-                                pgm_fn,
-                            );
-                            exit(1);
-                        }
-                        argv = argv.offset(1);
-                        open_sty(*argv);
-                        sty_given = true;
-                    }
-                    111 => {
-                        argc -= 1;
+    unsafe {
+        pgm_fn = CString::new(
+            std::env::args()
+                .into_iter()
+                .next()
+                .unwrap()
+                .split('/')
+                .last()
+                .unwrap(),
+        )
+        .unwrap()
+        .into_raw();
+    }
 
-                        if argc <= 0 {
-                            fprintf(
-                                stderr(),
-                                b"Expected -o <ind>\n\0" as *const u8 as *const libc::c_char,
-                                b"\0" as *const u8 as *const libc::c_char,
-                            );
-                            fprintf(
-                                stderr(),
-                                b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                                    as *const u8 as *const libc::c_char,
-                                pgm_fn,
-                            );
-                            exit(1);
-                        }
-                        argv = argv.offset(1);
-                        ind_fn = *argv;
-                        ind_given = true;
-                    }
-                    116 => {
-                        argc -= 1;
-
-                        if argc <= 0 {
-                            fprintf(
-                                stderr(),
-                                b"Expected -t <logfile>\n\0" as *const u8 as *const libc::c_char,
-                                b"\0" as *const u8 as *const libc::c_char,
-                            );
-                            fprintf(
-                                stderr(),
-                                b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                                    as *const u8 as *const libc::c_char,
-                                pgm_fn,
-                            );
-                            exit(1);
-                        }
-                        argv = argv.offset(1);
-                        ilg_fn = *argv;
-                        ilg_given = true;
-                    }
-                    112 => {
-                        argc -= 1;
-
-                        if argc <= 0 {
-                            fprintf(
-                                stderr(),
-                                b"Expected -p <num>\n\0" as *const u8 as *const libc::c_char,
-                                b"\0" as *const u8 as *const libc::c_char,
-                            );
-                            fprintf(
-                                stderr(),
-                                b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                                    as *const u8 as *const libc::c_char,
-                                pgm_fn,
-                            );
-                            exit(1);
-                        }
-                        argv = argv.offset(1);
-                        strcpy(pageno.as_mut_ptr(), *argv);
-                        init_page = 1;
-                        if strcmp(
-                            pageno.as_mut_ptr(),
-                            b"even\0" as *const u8 as *const libc::c_char,
-                        ) == 0
-                        {
-                            log_given = true;
-                            even_odd = 2;
-                        } else if strcmp(
-                            pageno.as_mut_ptr(),
-                            b"odd\0" as *const u8 as *const libc::c_char,
-                        ) == 0
-                        {
-                            log_given = true;
-                            even_odd = 1;
-                        } else if strcmp(
-                            pageno.as_mut_ptr(),
-                            b"any\0" as *const u8 as *const libc::c_char,
-                        ) == 0
-                        {
-                            log_given = true;
-                            even_odd = 0;
-                        }
-                    }
-                    103 => {
-                        german_sort = 1;
-                    }
-                    _ => {
-                        fprintf(
-                            stderr(),
-                            b"Unknown option -%c.\n\0" as *const u8 as *const libc::c_char,
-                            *ap as i32,
-                        );
-                        fprintf(
-                            stderr(),
-                            b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                                as *const u8 as *const libc::c_char,
-                            pgm_fn,
-                        );
-                        exit(1);
-                    }
-                }
-                ap = ap.offset(1);
-            }
-        } else if fn_no < 1024 {
-            check_idx(*argv, 0);
-            fn_no += 1;
-            fns[fn_no as usize] = *argv;
-        } else {
+    if args.input_files.len() >= 1024 {
+        unsafe {
             fprintf(
                 stderr(),
                 b"Too many input files (max %d).\n\0" as *const u8 as *const libc::c_char,
                 1024,
             );
-            fprintf(
-                stderr(),
-                b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                    as *const u8 as *const libc::c_char,
-                pgm_fn,
-            );
-            exit(1);
         }
     }
-    if fn_no == 0 && !sty_given {
+    for f in args.input_files.clone() {
+        // TODO: Use proper types and stop unwrapping everything
+        unsafe {
+            check_idx(CString::new(f.as_str()).unwrap().as_ptr() as *mut i8, 0);
+            // 0 = FALSE
+        }
+    }
+    if !args.use_stdin && args.input_files.len() == 0 {
+        // TODO: use stdin if no input file
+    }
+
+    if args.input_files.len() == 1 && !sty_given {
         let mut tmp = [0; 261];
-        sprintf(
-            tmp.as_mut_ptr(),
-            b"%s%s\0" as *const u8 as *const libc::c_char,
-            base.as_mut_ptr(),
-            b".mst\0" as *const u8 as *const libc::c_char,
-        );
-        if 0 == access(tmp.as_mut_ptr(), 4) {
-            open_sty(tmp.as_mut_ptr());
-            sty_given = true;
+        unsafe {
+            sprintf(
+                tmp.as_mut_ptr(),
+                b"%s%s\0" as *const u8 as *const libc::c_char,
+                base.as_mut_ptr(),
+                b".mst\0" as *const u8 as *const libc::c_char,
+            );
+        }
+        // If we have read access to the file
+        // TODO: use std::fs function
+        if 0 == unsafe { access(tmp.as_mut_ptr(), 4) } {
+            // TODO: Use proper types and stop unwrapping and using unsafe
+            args.style = Some(
+                unsafe { CString::from_raw(base.as_mut_ptr()) }
+                    .into_string()
+                    .unwrap()
+                    + ".mst",
+            );
+            unsafe {
+                open_sty(tmp.as_mut_ptr());
+            }
         }
     }
-    process_idx(
-        fns.as_mut_ptr(),
-        use_stdin,
-        sty_given,
-        ind_given,
-        ilg_given,
-        log_given,
-    );
-    idx_gt = idx_tt - idx_et;
-    if fn_no > 0 {
-        if verbose {
+    // TODO: temp waiting to use proper types
+    // let mut cstring_inputs = args.input_files.clone().iter().map(|arg| CString::new(arg.as_str()).unwrap()).map(|s| s.as_ptr() as *mut i8).collect::<Vec<_>>();
+    let cstring_inputs = args
+        .input_files
+        .clone()
+        .iter()
+        .map(|arg| CString::new(arg.as_str()).unwrap().into_raw())
+        .collect::<Vec<_>>();
+    unsafe {
+        fn_no = (cstring_inputs.len() - 1) as i32;
+    }
+    fns[..cstring_inputs.len()].copy_from_slice(cstring_inputs.as_slice());
+    unsafe {
+        process_idx(
+            fns.as_mut_ptr(),
+            use_stdin,
+            sty_given,
+            ind_given,
+            ilg_given,
+            log_given,
+        );
+    }
+
+    unsafe {
+        idx_gt = idx_tt - idx_et;
+    }
+    if args.input_files.len() > 1 {
+        if unsafe { verbose } {
+            unsafe {
+                fprintf(
+                    stderr(),
+                    b"Overall %d files read (%d entries accepted, %d rejected).\n\0" as *const u8
+                        as *const libc::c_char,
+                    fn_no + 1,
+                    idx_gt,
+                    idx_et,
+                );
+            }
+        }
+
+        unsafe {
             fprintf(
-                stderr(),
+                ilg_fp,
                 b"Overall %d files read (%d entries accepted, %d rejected).\n\0" as *const u8
                     as *const libc::c_char,
                 fn_no + 1,
@@ -332,60 +318,71 @@ pub unsafe extern "C" fn makeindex_main(mut argc: i32, mut argv: *mut *mut libc:
                 idx_et,
             );
         }
-        fprintf(
-            ilg_fp,
-            b"Overall %d files read (%d entries accepted, %d rejected).\n\0" as *const u8
-                as *const libc::c_char,
-            fn_no + 1,
-            idx_gt,
-            idx_et,
-        );
     }
-    if idx_gt > 0 {
-        prepare_idx();
-        sort_idx();
-        gen_ind();
-        if verbose {
+    if unsafe { idx_gt } > 0 {
+        unsafe {
+            prepare_idx();
+            sort_idx();
+            gen_ind();
+        }
+        if unsafe { verbose } {
+            unsafe {
+                fprintf(
+                    stderr(),
+                    b"Output written in %s.\n\0" as *const u8 as *const libc::c_char,
+                    ind_fn,
+                );
+            }
+        }
+        unsafe {
             fprintf(
-                stderr(),
+                ilg_fp,
                 b"Output written in %s.\n\0" as *const u8 as *const libc::c_char,
                 ind_fn,
             );
         }
-        fprintf(
-            ilg_fp,
-            b"Output written in %s.\n\0" as *const u8 as *const libc::c_char,
-            ind_fn,
-        );
     } else {
-        if verbose {
+        if unsafe { verbose } {
+            unsafe {
+                fprintf(
+                    stderr(),
+                    b"Nothing written in %s.\n\0" as *const u8 as *const libc::c_char,
+                    ind_fn,
+                );
+            }
+        }
+        unsafe {
             fprintf(
-                stderr(),
+                ilg_fp,
                 b"Nothing written in %s.\n\0" as *const u8 as *const libc::c_char,
                 ind_fn,
             );
         }
+    }
+    if unsafe { verbose } {
+        unsafe {
+            fprintf(
+                stderr(),
+                b"Transcript written in %s.\n\0" as *const u8 as *const libc::c_char,
+                ilg_fn,
+            );
+        }
+    }
+    unsafe {
         fprintf(
             ilg_fp,
-            b"Nothing written in %s.\n\0" as *const u8 as *const libc::c_char,
-            ind_fn,
-        );
-    }
-    if verbose {
-        fprintf(
-            stderr(),
             b"Transcript written in %s.\n\0" as *const u8 as *const libc::c_char,
             ilg_fn,
         );
     }
-    fprintf(
-        ilg_fp,
-        b"Transcript written in %s.\n\0" as *const u8 as *const libc::c_char,
-        ilg_fn,
-    );
-    fclose(ind_fp);
-    fclose(ilg_fp);
-    exit(0);
+    unsafe {
+        fclose(ind_fp);
+        fclose(ilg_fp);
+    }
+
+    unsafe {
+        exit(0);
+    }
 }
 unsafe extern "C" fn prepare_idx() {
     let mut ptr = head;
@@ -443,7 +440,7 @@ unsafe extern "C" fn process_idx(
         use_stdin = true;
     } else {
         check_all(*fn_0.offset(0), ind_given, ilg_given, log_given);
-        if verbose {
+        if unsafe { verbose } {
             fprintf(
                 stderr(),
                 b"This is %s, \0" as *const u8 as *const libc::c_char,
@@ -455,7 +452,7 @@ unsafe extern "C" fn process_idx(
             b"This is %s, \0" as *const u8 as *const libc::c_char,
             pgm_fn,
         );
-        if verbose {
+        if unsafe { verbose } {
             fprintf(
                 stderr(),
                 b"%s.\n\0" as *const u8 as *const libc::c_char,
@@ -562,7 +559,7 @@ unsafe extern "C" fn process_idx(
             exit(1);
         }
         if need_version {
-            if verbose {
+            if unsafe { verbose } {
                 fprintf(
                     stderr(),
                     b"This is %s, \0" as *const u8 as *const libc::c_char,
@@ -574,7 +571,7 @@ unsafe extern "C" fn process_idx(
                 b"This is %s, \0" as *const u8 as *const libc::c_char,
                 pgm_fn,
             );
-            if verbose {
+            if unsafe { verbose } {
                 fprintf(
                     stderr(),
                     b"%s.\n\0" as *const u8 as *const libc::c_char,

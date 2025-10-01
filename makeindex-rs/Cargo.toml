@@ -11,5 +11,6 @@ name = "makeindex"
 path = "src/main.rs"
 
 [dependencies]
+clap = { version = "4.5.48", features = ["derive"] }
 libc = "0.2.175"
 libc-stdhandle = "0.1.0"
