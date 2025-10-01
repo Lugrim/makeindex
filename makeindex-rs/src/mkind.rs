@@ -10,11 +10,10 @@
 use libc::*;
 use libc_stdhandle::*;
 
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 
-use clap::{ArgAction, Parser, ValueEnum};
+use clap::{ArgAction, Parser};
 
-// TODO: explicit what options do in help message
 #[derive(Parser, Clone)]
 pub struct CliArguments {
     /// Use stdin intead of input files
@@ -173,7 +172,8 @@ static mut base: [libc::c_char; 256] = [0; 256];
 static mut need_version: bool = true;
 
 #[no_mangle]
-// TODO: use a proper output library like tracing
+// TODO: use a proper output library like log or tracing
+// TODO: return a Result<i32, _> proper error management
 pub fn makeindex_main(mut args: CliArguments) -> i32 {
     let mut fns = [std::ptr::null_mut::<libc::c_char>(); 1024];
     // let mut ap = std::ptr::null_mut::<libc::c_char>(); // Was used to manually parse arguments
@@ -224,14 +224,10 @@ pub fn makeindex_main(mut args: CliArguments) -> i32 {
     }
 
     if args.input_files.len() >= 1024 {
-        unsafe {
-            fprintf(
-                stderr(),
-                b"Too many input files (max %d).\n\0" as *const u8 as *const libc::c_char,
-                1024,
-            );
-        }
+        eprintln!("Too many input files (max {}).", 1024);
+        unsafe { exit(1) }
     }
+
     for f in args.input_files.clone() {
         // TODO: Use proper types and stop unwrapping everything
         unsafe {
@@ -296,16 +292,12 @@ pub fn makeindex_main(mut args: CliArguments) -> i32 {
     }
     if args.input_files.len() > 1 {
         if unsafe { verbose } {
-            unsafe {
-                fprintf(
-                    stderr(),
-                    b"Overall %d files read (%d entries accepted, %d rejected).\n\0" as *const u8
-                        as *const libc::c_char,
-                    fn_no + 1,
-                    idx_gt,
-                    idx_et,
-                );
-            }
+            eprintln!(
+                "Overall {} files read ({} entries accepted, {} rejected).",
+                unsafe { fn_no } + 1,
+                unsafe { idx_gt },
+                unsafe { idx_et }
+            );
         }
 
         unsafe {
@@ -326,13 +318,11 @@ pub fn makeindex_main(mut args: CliArguments) -> i32 {
             gen_ind();
         }
         if unsafe { verbose } {
-            unsafe {
-                fprintf(
-                    stderr(),
-                    b"Output written in %s.\n\0" as *const u8 as *const libc::c_char,
-                    ind_fn,
-                );
-            }
+            // unsafe { exit(1); }
+            eprintln!(
+                "Output written in {}.",
+                unsafe { CStr::from_ptr(ind_fn) }.to_str().unwrap()
+            );
         }
         unsafe {
             fprintf(
@@ -343,13 +333,10 @@ pub fn makeindex_main(mut args: CliArguments) -> i32 {
         }
     } else {
         if unsafe { verbose } {
-            unsafe {
-                fprintf(
-                    stderr(),
-                    b"Nothing written in %s.\n\0" as *const u8 as *const libc::c_char,
-                    ind_fn,
-                );
-            }
+            eprintln!(
+                "Nothing written in {}.",
+                unsafe { CStr::from_ptr(ind_fn) }.to_str().unwrap()
+            );
         }
         unsafe {
             fprintf(
@@ -360,13 +347,10 @@ pub fn makeindex_main(mut args: CliArguments) -> i32 {
         }
     }
     if unsafe { verbose } {
-        unsafe {
-            fprintf(
-                stderr(),
-                b"Transcript written in %s.\n\0" as *const u8 as *const libc::c_char,
-                ilg_fn,
-            );
-        }
+        eprintln!(
+            "Transcript written in {}.",
+            unsafe { CStr::from_ptr(ilg_fn) }.to_str().unwrap()
+        );
     }
     unsafe {
         fprintf(
@@ -388,17 +372,7 @@ unsafe extern "C" fn prepare_idx() {
     let mut ptr = head;
     let mut i = 0;
     if head.is_null() {
-        fprintf(
-            stderr(),
-            b"No valid index entries collected.\n\0" as *const u8 as *const libc::c_char,
-            b"\0" as *const u8 as *const libc::c_char,
-        );
-        fprintf(
-            stderr(),
-            b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                as *const u8 as *const libc::c_char,
-            pgm_fn,
-        );
+        eprintln!("No valid index entries collected.");
         exit(1);
     }
     idx_key = calloc(
@@ -406,17 +380,7 @@ unsafe extern "C" fn prepare_idx() {
         ::core::mem::size_of::<FIELD_PTR>(),
     ) as *mut FIELD_PTR;
     if idx_key.is_null() {
-        fprintf(
-            stderr(),
-            b"Not enough core...abort.\n\0" as *const u8 as *const libc::c_char,
-            b"\0" as *const u8 as *const libc::c_char,
-        );
-        fprintf(
-            stderr(),
-            b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                as *const u8 as *const libc::c_char,
-            pgm_fn,
-        );
+        eprintln!("Not enough core...abort.");
         exit(1);
     }
     i = 0;
@@ -441,27 +405,16 @@ unsafe extern "C" fn process_idx(
     } else {
         check_all(*fn_0.offset(0), ind_given, ilg_given, log_given);
         if unsafe { verbose } {
-            fprintf(
-                stderr(),
-                b"This is %s, \0" as *const u8 as *const libc::c_char,
-                pgm_fn,
+            eprintln!(
+                "This is {}, {}",
+                CStr::from_ptr(pgm_fn).to_str().unwrap(),
+                "portable version 2.12 [26-May-1993]"
             );
         }
         fprintf(
             ilg_fp,
-            b"This is %s, \0" as *const u8 as *const libc::c_char,
+            b"This is %s, %s.\n\0" as *const u8 as *const libc::c_char,
             pgm_fn,
-        );
-        if unsafe { verbose } {
-            fprintf(
-                stderr(),
-                b"%s.\n\0" as *const u8 as *const libc::c_char,
-                b"portable version 2.12 [26-May-1993]\0" as *const u8 as *const libc::c_char,
-            );
-        }
-        fprintf(
-            ilg_fp,
-            b"%s.\n\0" as *const u8 as *const libc::c_char,
             b"portable version 2.12 [26-May-1993]\0" as *const u8 as *const libc::c_char,
         );
         need_version = false;
@@ -469,17 +422,9 @@ unsafe extern "C" fn process_idx(
             scan_sty();
         }
         if german_sort != 0 && idx_quote as i32 == '"' as i32 {
-            fprintf(
-                stderr(),
-                b"Option -g invalid, quote character must be different from '%c'.\n\0" as *const u8
-                    as *const libc::c_char,
-                '"' as i32,
-            );
-            fprintf(
-                stderr(),
-                b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                    as *const u8 as *const libc::c_char,
-                pgm_fn,
+            eprintln!(
+                "Option -g invalid, quote character must be different from '{}'.",
+                '"'
             );
             exit(1);
         }
@@ -501,16 +446,9 @@ unsafe extern "C" fn process_idx(
                 ind_fp = fopen(ind_fn, b"w\0" as *const u8 as *const libc::c_char);
                 ind_fp.is_null()
             } {
-                fprintf(
-                    stderr(),
-                    b"Can't create output index file %s.\n\0" as *const u8 as *const libc::c_char,
-                    ind_fn,
-                );
-                fprintf(
-                    stderr(),
-                    b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                        as *const u8 as *const libc::c_char,
-                    pgm_fn,
+                eprintln!(
+                    "Can't create output index file {}.",
+                    CStr::from_ptr(ind_fn).to_str().unwrap()
                 );
                 exit(1);
             }
@@ -523,16 +461,9 @@ unsafe extern "C" fn process_idx(
                 ilg_fp = fopen(ilg_fn, b"w\0" as *const u8 as *const libc::c_char);
                 ilg_fp.is_null()
             } {
-                fprintf(
-                    stderr(),
-                    b"Can't create transcript file %s.\n\0" as *const u8 as *const libc::c_char,
-                    ilg_fn,
-                );
-                fprintf(
-                    stderr(),
-                    b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                        as *const u8 as *const libc::c_char,
-                    pgm_fn,
+                eprintln!(
+                    "Can't create transcript file {}.",
+                    CStr::from_ptr(ilg_fn).to_str().unwrap()
                 );
                 exit(1);
             }
@@ -544,43 +475,24 @@ unsafe extern "C" fn process_idx(
             scan_sty();
         }
         if german_sort != 0 && idx_quote as i32 == '"' as i32 {
-            fprintf(
-                stderr(),
-                b"Option -g ignored, quote character must be different from '%c'.\n\0" as *const u8
-                    as *const libc::c_char,
-                '"' as i32,
-            );
-            fprintf(
-                stderr(),
-                b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                    as *const u8 as *const libc::c_char,
-                pgm_fn,
+            eprintln!(
+                "Option -g ignored, quote character must be different from '{}'.\n\0",
+                '"'
             );
             exit(1);
         }
         if need_version {
             if unsafe { verbose } {
-                fprintf(
-                    stderr(),
-                    b"This is %s, \0" as *const u8 as *const libc::c_char,
-                    pgm_fn,
+                eprintln!(
+                    "This is {}, {}",
+                    CStr::from_ptr(pgm_fn).to_str().unwrap(),
+                    "portable version 2.12 [26-May-1993]"
                 );
             }
             fprintf(
                 ilg_fp,
-                b"This is %s, \0" as *const u8 as *const libc::c_char,
+                b"This is %s, %s.\n\0" as *const u8 as *const libc::c_char,
                 pgm_fn,
-            );
-            if unsafe { verbose } {
-                fprintf(
-                    stderr(),
-                    b"%s.\n\0" as *const u8 as *const libc::c_char,
-                    b"portable version 2.12 [26-May-1993]\0" as *const u8 as *const libc::c_char,
-                );
-            }
-            fprintf(
-                ilg_fp,
-                b"%s.\n\0" as *const u8 as *const libc::c_char,
                 b"portable version 2.12 [26-May-1993]\0" as *const u8 as *const libc::c_char,
             );
             need_version = false;
@@ -616,17 +528,10 @@ unsafe extern "C" fn check_idx(mut fn_0: *mut libc::c_char, mut open_fn: i32) {
     if i < 256 {
         base[i as usize] = '\0' as i32 as libc::c_char;
     } else {
-        fprintf(
-            stderr(),
-            b"Index file name %s too long (max %d).\n\0" as *const u8 as *const libc::c_char,
-            base.as_mut_ptr(),
+        eprintln!(
+            "Index file name {} too long (max {}).",
+            CStr::from_ptr(base.as_ptr()).to_str().unwrap(),
             256,
-        );
-        fprintf(
-            stderr(),
-            b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                as *const u8 as *const libc::c_char,
-            pgm_fn,
         );
         exit(1);
     }
@@ -637,32 +542,15 @@ unsafe extern "C" fn check_idx(mut fn_0: *mut libc::c_char, mut open_fn: i32) {
     } || open_fn == 0 && access(idx_fn, 4) != 0
     {
         if with_ext != 0 {
-            fprintf(
-                stderr(),
-                b"Input index file %s not found.\n\0" as *const u8 as *const libc::c_char,
-                idx_fn,
-            );
-            fprintf(
-                stderr(),
-                b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                    as *const u8 as *const libc::c_char,
-                pgm_fn,
+            eprintln!(
+                "Input index file {} not found.",
+                CStr::from_ptr(idx_fn).to_str().unwrap(),
             );
             exit(1);
         } else {
             idx_fn = malloc(256) as *mut libc::c_char;
             if idx_fn.is_null() {
-                fprintf(
-                    stderr(),
-                    b"Not enough core...abort.\n\0" as *const u8 as *const libc::c_char,
-                    b"\0" as *const u8 as *const libc::c_char,
-                );
-                fprintf(
-                    stderr(),
-                    b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                        as *const u8 as *const libc::c_char,
-                    pgm_fn,
-                );
+                eprintln!("Not enough core...abort.");
                 exit(1);
             }
             sprintf(
@@ -676,18 +564,10 @@ unsafe extern "C" fn check_idx(mut fn_0: *mut libc::c_char, mut open_fn: i32) {
                 idx_fp.is_null()
             } || open_fn == 0 && access(idx_fn, 4) != 0
             {
-                fprintf(
-                    stderr(),
-                    b"Couldn't find input index file %s nor %s.\n\0" as *const u8
-                        as *const libc::c_char,
-                    base.as_mut_ptr(),
-                    idx_fn,
-                );
-                fprintf(
-                    stderr(),
-                    b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                        as *const u8 as *const libc::c_char,
-                    pgm_fn,
+                eprintln!(
+                    "Couldn't find input index file {} nor {}.",
+                    CStr::from_ptr(base.as_ptr()).to_str().unwrap(),
+                    CStr::from_ptr(idx_fn).to_str().unwrap(),
                 );
                 exit(1);
             }
@@ -712,16 +592,9 @@ unsafe extern "C" fn check_all(
     }
     ind_fp = fopen(ind_fn, b"w\0" as *const u8 as *const libc::c_char);
     if ind_fp.is_null() {
-        fprintf(
-            stderr(),
-            b"Can't create output index file %s.\n\0" as *const u8 as *const libc::c_char,
-            ind_fn,
-        );
-        fprintf(
-            stderr(),
-            b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                as *const u8 as *const libc::c_char,
-            pgm_fn,
+        eprintln!(
+            "Can't create output index file {}.",
+            CStr::from_ptr(ind_fn).to_str().unwrap(),
         );
         exit(1);
     }
@@ -736,16 +609,9 @@ unsafe extern "C" fn check_all(
     }
     ilg_fp = fopen(ilg_fn, b"w\0" as *const u8 as *const libc::c_char);
     if ilg_fp.is_null() {
-        fprintf(
-            stderr(),
-            b"Can't create transcript file %s.\n\0" as *const u8 as *const libc::c_char,
-            ilg_fn,
-        );
-        fprintf(
-            stderr(),
-            b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                as *const u8 as *const libc::c_char,
-            pgm_fn,
+        eprintln!(
+            "Can't create transcript file {}.",
+            CStr::from_ptr(ilg_fn).to_str().unwrap(),
         );
         exit(1);
     }
@@ -761,16 +627,9 @@ unsafe extern "C" fn check_all(
             b"r\0" as *const u8 as *const libc::c_char,
         );
         if log_fp.is_null() {
-            fprintf(
-                stderr(),
-                b"Source log file %s not found.\n\0" as *const u8 as *const libc::c_char,
-                log_fn.as_mut_ptr(),
-            );
-            fprintf(
-                stderr(),
-                b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                    as *const u8 as *const libc::c_char,
-                pgm_fn,
+            eprintln!(
+                "Source log file {} not found.",
+                CStr::from_ptr(log_fn.as_ptr()).to_str().unwrap(),
             );
             exit(1);
         } else {
@@ -864,17 +723,10 @@ unsafe extern "C" fn open_sty(mut fn_0: *mut libc::c_char) {
                 }
             }
             if i == len {
-                fprintf(
-                    stderr(),
-                    b"Path %s too long (max %d).\n\0" as *const u8 as *const libc::c_char,
-                    sty_fn.as_mut_ptr(),
+                eprintln!(
+                    "Path {} too long (max {}).",
+                    CStr::from_ptr(sty_fn.as_ptr()).to_str().unwrap(),
                     1024,
-                );
-                fprintf(
-                    stderr(),
-                    b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                        as *const u8 as *const libc::c_char,
-                    pgm_fn,
                 );
                 exit(1);
             } else {
@@ -897,16 +749,9 @@ unsafe extern "C" fn open_sty(mut fn_0: *mut libc::c_char) {
         }
     }
     if sty_fp.is_null() {
-        fprintf(
-            stderr(),
-            b"Index style file %s not found.\n\0" as *const u8 as *const libc::c_char,
-            fn_0,
-        );
-        fprintf(
-            stderr(),
-            b"Usage: %s [-ilqrcg] [-s sty] [-o ind] [-t log] [-p num] [idx0 idx1 ...]\n\0"
-                as *const u8 as *const libc::c_char,
-            pgm_fn,
+        eprintln!(
+            "Index style file {} not found.",
+            CStr::from_ptr(fn_0).to_str().unwrap(),
         );
         exit(1);
     }
