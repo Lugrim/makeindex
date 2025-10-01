@@ -52,9 +52,8 @@ pub struct CliArguments {
     #[arg(short = 't')]
     transcript: Option<String>,
 
-    // TODO: Cover the "even" / "odd" / "any" case
     /// Initial page
-    #[arg(short = 'p')]
+    #[arg(short = 'p', value_parser = parse_init_page)]
     _init_page: Option<usize>,
 
     /// Input .idx files
@@ -62,12 +61,14 @@ pub struct CliArguments {
     input_files: Vec<String>,
 }
 
-// #[derive(ValueEnum, Clone)]
-// enum InitialPage {
-//     Even,
-//     Odd,
-//     Any
-// }
+fn parse_init_page(arg: &str) -> Result<usize, std::num::ParseIntError> {
+    match arg {
+        "even" => Ok(2),
+        "odd" => Ok(1),
+        "any" => Ok(0),
+        nbr => str::parse::<usize>(nbr),
+    }
+}
 
 extern "C" {
     fn __ctype_b_loc() -> *mut *const libc::c_ushort;
@@ -184,6 +185,7 @@ pub fn makeindex_main(mut args: CliArguments) -> i32 {
     unsafe {
         init_page = args._init_page.is_some() as i32;
     }
+    // TODO: Set to "true" when given value is "even" / "odd" / "any"
     let mut log_given = false;
     unsafe {
         german_sort = args._german_sort as i32;
