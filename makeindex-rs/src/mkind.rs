@@ -54,7 +54,7 @@ pub struct CliArguments {
 
     /// Initial page
     #[arg(short = 'p', value_parser = parse_init_page)]
-    _init_page: Option<InitialPage>,
+    pub init_page: Option<InitialPage>,
 
     /// Input .idx files
     #[arg(trailing_var_arg = true)]
@@ -62,7 +62,7 @@ pub struct CliArguments {
 }
 
 #[derive(Clone, Copy)]
-enum InitialPage {
+pub enum InitialPage {
     Even,
     Odd,
     Any,
@@ -93,7 +93,7 @@ extern "C" {
     fn __ctype_b_loc() -> *mut *const libc::c_ushort;
     static mut idx_quote: libc::c_char;
     static mut head: NODE_PTR;
-    fn gen_ind();
+    fn gen_ind(args: &CliArguments);
     fn scan_idx();
     fn scan_sty();
     fn sort_idx();
@@ -141,8 +141,6 @@ pub static mut letter_ordering: i32 = 0;
 pub static mut compress_blanks: i32 = 0;
 #[no_mangle]
 pub static mut merge_page: i32 = 1;
-#[no_mangle]
-pub static mut init_page: i32 = 0;
 #[no_mangle]
 pub static mut even_odd: i32 = -(1);
 #[no_mangle]
@@ -201,11 +199,8 @@ pub fn makeindex_main(mut args: CliArguments) -> i32 {
     let mut sty_given = args.style.is_some();
     let mut ind_given = args.output.is_some();
     let mut ilg_given = args.transcript.is_some();
-    unsafe {
-        init_page = args._init_page.is_some() as i32;
-    }
 
-    let mut log_given = match args._init_page {
+    let mut log_given = match args.init_page {
         Some(InitialPage::Even | InitialPage::Odd | InitialPage::Any) => true,
         _ => false,
     };
@@ -213,26 +208,24 @@ pub fn makeindex_main(mut args: CliArguments) -> i32 {
         german_sort = args._german_sort as i32;
     }
 
-    if let Some(style) = args.style {
+    if let Some(style) = args.style.clone() {
         unsafe { open_sty(CString::new(style).unwrap().into_raw()) }
     }
 
-    if let Some(out) = args.output {
+    if let Some(out) = args.output.clone() {
         unsafe { ind_fn = CString::new(out).unwrap().into_raw() }
     }
 
-    if let Some(trans) = args.transcript {
+    if let Some(trans) = args.transcript.clone() {
         unsafe { ilg_fn = CString::new(trans).unwrap().into_raw() }
     }
 
-    if let Some(page) = args._init_page {
+    if let Some(page) = args.init_page {
         unsafe {
             pageno.copy_from_slice(std::mem::transmute::<&[u8], &[i8]>(
                 CString::new(page.to_string()).unwrap().to_bytes(),
             ))
         }
-    } else {
-        unsafe { init_page = 0; }
     }
 
     unsafe {
@@ -310,6 +303,7 @@ pub fn makeindex_main(mut args: CliArguments) -> i32 {
             ind_given,
             ilg_given,
             log_given,
+            &mut args,
         );
     }
 
@@ -341,7 +335,7 @@ pub fn makeindex_main(mut args: CliArguments) -> i32 {
         unsafe {
             prepare_idx();
             sort_idx();
-            gen_ind();
+            gen_ind(&args);
         }
         if unsafe { verbose } {
             // unsafe { exit(1); }
@@ -424,12 +418,13 @@ unsafe extern "C" fn process_idx(
     mut ind_given: bool,
     mut ilg_given: bool,
     mut log_given: bool,
+    args: &mut CliArguments,
 ) {
     let mut i = 0;
     if fn_no == -(1) {
         use_stdin = true;
     } else {
-        check_all(*fn_0.offset(0), ind_given, ilg_given, log_given);
+        check_all(*fn_0.offset(0), ind_given, ilg_given, log_given, args);
         if unsafe { verbose } {
             eprintln!(
                 "This is {}, {}",
@@ -605,6 +600,7 @@ unsafe extern "C" fn check_all(
     mut ind_given: bool,
     mut ilg_given: bool,
     mut log_given: bool,
+    args: &mut CliArguments,
 ) {
     check_idx(fn_0, 1);
     if !ind_given {
@@ -659,12 +655,12 @@ unsafe extern "C" fn check_all(
             );
             exit(1);
         } else {
-            find_pageno();
+            find_pageno(args);
             fclose(log_fp);
         }
     }
 }
-unsafe extern "C" fn find_pageno() {
+unsafe extern "C" fn find_pageno(args: &mut CliArguments) {
     let mut i = 0;
     let mut p = 0;
     let mut c = 0;
@@ -710,7 +706,7 @@ unsafe extern "C" fn find_pageno() {
                 as *const libc::c_char,
             log_fn.as_mut_ptr(),
         );
-        init_page = 0;
+        args.init_page = Some(InitialPage::Any);
     };
 }
 unsafe extern "C" fn open_sty(mut fn_0: *mut libc::c_char) {

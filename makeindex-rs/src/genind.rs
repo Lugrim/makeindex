@@ -1,8 +1,10 @@
 use libc::*;
 use libc_stdhandle::*;
+
+use crate::mkind::{ CliArguments, InitialPage };
+
 extern "C" {
     fn __ctype_b_loc() -> *mut *const libc::c_ushort;
-    static mut init_page: i32;
     static mut merge_page: i32;
     static mut even_odd: i32;
     static mut verbose: i32;
@@ -102,7 +104,7 @@ static mut ind_lc: i32 = 0;
 static mut ind_ec: i32 = 0;
 static mut ind_indent: i32 = 0;
 #[no_mangle]
-pub unsafe extern "C" fn gen_ind() {
+pub unsafe extern "C" fn gen_ind(args: &CliArguments) {
     let mut n = 0;
     let mut tmp_lc = 0;
     if verbose != 0 {
@@ -119,7 +121,7 @@ pub unsafe extern "C" fn gen_ind() {
     );
     fputs(preamble.as_mut_ptr(), ind_fp);
     ind_lc += prelen;
-    if init_page != 0 {
+    if match args.init_page { None | Some(InitialPage::Any) => false, _ => true } {
         insert_page();
     }
     idx_dc = 0;
