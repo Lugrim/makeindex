@@ -54,19 +54,38 @@ pub struct CliArguments {
 
     /// Initial page
     #[arg(short = 'p', value_parser = parse_init_page)]
-    _init_page: Option<usize>,
+    _init_page: Option<InitialPage>,
 
     /// Input .idx files
     #[arg(trailing_var_arg = true)]
     input_files: Vec<String>,
 }
 
-fn parse_init_page(arg: &str) -> Result<usize, std::num::ParseIntError> {
+#[derive(Clone, Copy)]
+enum InitialPage {
+    Even,
+    Odd,
+    Any,
+    Number(usize),
+}
+
+impl std::fmt::Display for InitialPage {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match *self {
+            InitialPage::Even => write!(f, "even"),
+            InitialPage::Odd => write!(f, "odd"),
+            InitialPage::Any => write!(f, "any"),
+            InitialPage::Number(n) => write!(f, "{n}"),
+        }
+    }
+}
+
+fn parse_init_page(arg: &str) -> Result<InitialPage, std::num::ParseIntError> {
     match arg {
-        "even" => Ok(2),
-        "odd" => Ok(1),
-        "any" => Ok(0),
-        nbr => str::parse::<usize>(nbr),
+        "even" => Ok(InitialPage::Even),
+        "odd" => Ok(InitialPage::Odd),
+        "any" => Ok(InitialPage::Any),
+        nbr => str::parse::<usize>(nbr).map(InitialPage::Number),
     }
 }
 
@@ -185,8 +204,11 @@ pub fn makeindex_main(mut args: CliArguments) -> i32 {
     unsafe {
         init_page = args._init_page.is_some() as i32;
     }
-    // TODO: Set to "true" when given value is "even" / "odd" / "any"
-    let mut log_given = false;
+
+    let mut log_given = match args._init_page {
+        Some(InitialPage::Even | InitialPage::Odd | InitialPage::Any) => true,
+        _ => false,
+    };
     unsafe {
         german_sort = args._german_sort as i32;
     }
@@ -209,6 +231,8 @@ pub fn makeindex_main(mut args: CliArguments) -> i32 {
                 CString::new(page.to_string()).unwrap().to_bytes(),
             ))
         }
+    } else {
+        unsafe { init_page = 0; }
     }
 
     unsafe {
