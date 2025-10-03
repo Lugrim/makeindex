@@ -5,7 +5,6 @@ use crate::mkind::{ CliArguments, InitialPage };
 
 extern "C" {
     fn __ctype_b_loc() -> *mut *const libc::c_ushort;
-    static mut merge_page: i32;
     static mut even_odd: i32;
     static mut verbose: i32;
     static mut german_sort: i32;
@@ -127,7 +126,7 @@ pub unsafe extern "C" fn gen_ind(args: &CliArguments) {
     idx_dc = 0;
     n = 0;
     while n < idx_gt {
-        if (**idx_key.offset(n as isize)).type_0 as i32 != 9999 && make_entry(n) != 0 {
+        if (**idx_key.offset(n as isize)).type_0 as i32 != 9999 && make_entry(n, args) != 0 {
             idx_dot = 1;
             let fresh0 = idx_dc;
             idx_dc += 1;
@@ -211,7 +210,7 @@ pub unsafe extern "C" fn gen_ind(args: &CliArguments) {
         );
     };
 }
-unsafe extern "C" fn make_entry(n: i32) -> i32 {
+unsafe extern "C" fn make_entry(n: i32, args: &CliArguments) -> i32 {
     let mut let_0 = 0;
     prev = curr;
     curr = *idx_key.offset(n as isize);
@@ -240,7 +239,7 @@ unsafe extern "C" fn make_entry(n: i32) -> i32 {
         if level < 3 {
             new_entry();
         } else {
-            old_entry();
+            old_entry(args);
         }
     }
     if *(*curr).encap as i32 == idx_ropen as i32 {
@@ -481,13 +480,13 @@ unsafe extern "C" fn new_entry() {
         make_item(delim_t.as_mut_ptr());
     };
 }
-unsafe extern "C" fn old_entry() {
+unsafe extern "C" fn old_entry(args: &CliArguments) {
     let mut diff = 0;
     diff = page_diff(end, curr);
     if (*prev).type_0 as i32 == (*curr).type_0 as i32
         && diff != -1
         && (diff == 0 && !prev_encap.is_null() && strcmp(encap, prev_encap) == 0
-            || merge_page != 0
+            || args.merge_page
                 && diff == 1
                 && !prev_encap.is_null()
                 && strcmp(encap, prev_encap) == 0

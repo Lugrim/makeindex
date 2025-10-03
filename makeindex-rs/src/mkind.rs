@@ -30,7 +30,7 @@ pub struct CliArguments {
 
     /// Disable range merge
     #[arg(short = 'r', action=ArgAction::SetFalse)]
-    _merge_page: bool,
+    pub merge_page: bool,
 
     /// Compress blanks
     #[arg(short = 'c')]
@@ -140,8 +140,6 @@ pub static mut letter_ordering: i32 = 0;
 #[no_mangle]
 pub static mut compress_blanks: i32 = 0;
 #[no_mangle]
-pub static mut merge_page: i32 = 1;
-#[no_mangle]
 pub static mut even_odd: i32 = -(1);
 #[no_mangle]
 pub static mut verbose: bool = true;
@@ -219,6 +217,8 @@ pub fn makeindex_main(mut args: CliArguments) -> i32 {
     if let Some(trans) = args.transcript.clone() {
         unsafe { ilg_fn = CString::new(trans).unwrap().into_raw() }
     }
+
+    unsafe { letter_ordering = args._letter_ordering as i32; }
 
     if let Some(page) = args.init_page {
         unsafe {
