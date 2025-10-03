@@ -144,8 +144,6 @@ pub static mut verbose: bool = true;
 #[no_mangle]
 pub static mut german_sort: i32 = 0;
 #[no_mangle]
-pub static mut fn_no: i32 = -(1);
-#[no_mangle]
 pub static mut idx_dot: i32 = 1;
 #[no_mangle]
 pub static mut idx_tt: i32 = 0;
@@ -289,9 +287,6 @@ pub fn makeindex_main(mut args: CliArguments) -> i32 {
         .iter()
         .map(|arg| CString::new(arg.as_str()).unwrap().into_raw())
         .collect::<Vec<_>>();
-    unsafe {
-        fn_no = (cstring_inputs.len() - 1) as i32;
-    }
     fns[..cstring_inputs.len()].copy_from_slice(cstring_inputs.as_slice());
     unsafe {
         process_idx(
@@ -312,7 +307,7 @@ pub fn makeindex_main(mut args: CliArguments) -> i32 {
         if unsafe { verbose } {
             eprintln!(
                 "Overall {} files read ({} entries accepted, {} rejected).",
-                unsafe { fn_no } + 1,
+                args.input_files.len(),
                 unsafe { idx_gt },
                 unsafe { idx_et }
             );
@@ -323,7 +318,7 @@ pub fn makeindex_main(mut args: CliArguments) -> i32 {
                 ilg_fp,
                 b"Overall %d files read (%d entries accepted, %d rejected).\n\0" as *const u8
                     as *const libc::c_char,
-                fn_no + 1,
+                args.input_files.len(),
                 idx_gt,
                 idx_et,
             );
@@ -419,7 +414,7 @@ unsafe extern "C" fn process_idx(
     args: &mut CliArguments,
 ) {
     let mut i = 0;
-    if fn_no == -(1) {
+    if args.input_files.len() == 0 {
         use_stdin = true;
     } else {
         check_all(*fn_0.offset(0), ind_given, ilg_given, log_given, args);
@@ -451,7 +446,7 @@ unsafe extern "C" fn process_idx(
         ind_given = true;
         ilg_given = true;
         i = 1;
-        while i <= fn_no {
+        while i < args.input_files.len() {
             check_idx(*fn_0.offset(i as isize), 1);
             scan_idx();
             i += 1;
@@ -490,7 +485,7 @@ unsafe extern "C" fn process_idx(
             ilg_fn = b"stderr\0" as *const u8 as *const libc::c_char as *mut libc::c_char;
             ilg_fp = stderr();
         }
-        if fn_no == -(1) && sty_given {
+        if args.input_files.len() == 0 && sty_given {
             scan_sty();
         }
         if german_sort != 0 && idx_quote as i32 == '"' as i32 {
@@ -517,7 +512,8 @@ unsafe extern "C" fn process_idx(
             need_version = false;
         }
         scan_idx();
-        fn_no += 1;
+        // TODO: count it in total
+        // fn_no += 1;
     }
 }
 unsafe extern "C" fn check_idx(mut fn_0: *mut libc::c_char, mut open_fn: i32) {
