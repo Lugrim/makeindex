@@ -140,8 +140,6 @@ pub static mut letter_ordering: i32 = 0;
 #[no_mangle]
 pub static mut compress_blanks: i32 = 0;
 #[no_mangle]
-pub static mut even_odd: i32 = -(1);
-#[no_mangle]
 pub static mut verbose: bool = true;
 #[no_mangle]
 pub static mut german_sort: i32 = 0;

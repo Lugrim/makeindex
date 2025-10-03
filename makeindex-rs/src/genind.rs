@@ -5,7 +5,6 @@ use crate::mkind::{ CliArguments, InitialPage };
 
 extern "C" {
     fn __ctype_b_loc() -> *mut *const libc::c_ushort;
-    static mut even_odd: i32;
     static mut verbose: i32;
     static mut german_sort: i32;
     static mut idx_ropen: libc::c_char;
@@ -121,7 +120,7 @@ pub unsafe extern "C" fn gen_ind(args: &CliArguments) {
     fputs(preamble.as_mut_ptr(), ind_fp);
     ind_lc += prelen;
     if match args.init_page { None | Some(InitialPage::Any) => false, _ => true } {
-        insert_page();
+        insert_page(args);
     }
     idx_dc = 0;
     n = 0;
@@ -752,11 +751,11 @@ unsafe extern "C" fn wrap_line(print: i32) {
         strcat(line.as_mut_ptr(), buff.as_mut_ptr());
     };
 }
-unsafe extern "C" fn insert_page() {
+unsafe extern "C" fn insert_page(args: &CliArguments) {
     let mut i = 0;
     let mut j = 0;
     let mut page = 0;
-    if even_odd >= 0 {
+    if match args.init_page { Some(InitialPage::Even | InitialPage::Odd | InitialPage::Any) => true, _ => false } {
         loop {
             let fresh1 = i;
             i += 1;
@@ -785,7 +784,11 @@ unsafe extern "C" fn insert_page() {
             i += 1;
         }
         page = strtoint(&mut *pageno.as_mut_ptr().offset(i as isize)) + 1;
-        if even_odd == 1 && page % 2 == 0 || even_odd == 2 && page % 2 == 1 {
+        if match args.init_page {
+            Some(InitialPage::Odd) => page % 2 == 0,
+            Some(InitialPage::Even) => page % 2 == 1,
+            _ => false,
+        } {
             page += 1;
         }
         *pageno.as_mut_ptr().offset((j + 1) as isize) = '\0' as i32 as libc::c_char;
